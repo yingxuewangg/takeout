@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.merchant.mapper.DashboardMapper">
+
+	<!--
+	  数据看板统计（T14）—— 全部只读聚合查询，不写任何数据。
+	  口径（已与用户确认）：
+	    · 营业额 / 订单量：仅主状态 5（已完成），按 create_time（下单时间，方案 A）过滤；
+	    · 退款扣减：已完成且 refund_status=2 的实付从净营业额扣减；refund_status=1 单独展示不扣减；
+	    · 菜品排行 / 分类占比：biz_order_item 聚合，仅主状态 5 且 refund_status≠2；
+	    · 时间区间一律参数化（>= start and < end），命中 idx_biz_order_status_create。
+	  注意：字段全部用 AS 别名显式映射（工程未启用 mapUnderscoreToCamelCase）。
+	-->
+
+	<!-- 概览：单条 SQL 用条件聚合一次算出多指标，避免多次扫表 -->
+	<select id="selectOverview" resultType="com.ruoyi.merchant.domain.vo.DashboardOverviewVo">
+		select
+			ifnull(sum(case when status = 5 then pay_amount else 0 end), 0)      as revenue,
+			ifnull(sum(case when status = 5 then goods_amount else 0 end), 0)    as goodsRevenue,
+			ifnull(sum(case when status = 5 then delivery_fee else 0 end), 0)    as deliveryRevenue,
+			<!-- 退款金额（展示口径）：全部已退款订单，无论主状态——供看板"退款金额"卡片展示真实退款规模 -->
+			ifnull(sum(case when refund_status = 2 then pay_amount else 0 end), 0) as refundedAmount,
+			<!-- 扣减口径：仅"已完成且已退款"的金额才真正从营业额中扣减（已退款订单多为未完成状态，本不营业额内） -->
+			ifnull(sum(case when status = 5 and refund_status = 2 then pay_amount else 0 end), 0) as refundedInRevenue,
+			<!-- 退款审核中：单独展示，不参与扣减 -->
+			ifnull(sum(case when refund_status = 1 then pay_amount else 0 end), 0) as refundingAmount,
+			count(case when status = 5 then 1 end)                               as orderCount,
+			count(case when status = 6 then 1 end)                               as cancelledCount,
+			count(case when refund_status = 2 then 1 end)                        as refundedCount
+		from biz_order
+		where create_time &gt;= #{start} and create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and delivery_type = #{deliveryType}
+		</if>
+	</select>
+
+	<!-- 趋势（按天）：仅返回有数据的日期，空日期由服务层补零。
+	     T19：去掉 where 的 status=5 硬过滤，改为条件聚合——营业额/订单量口径不变（仍只算 status=5），
+	     同时统计退款成功订单数（refund_status=2，不受 status 限制）供退款率曲线使用。 -->
+	<select id="selectTrendByDay" resultType="com.ruoyi.merchant.domain.vo.DashboardTrendVo">
+		select
+			date_format(create_time, '%Y-%m-%d') as timeLabel,
+			ifnull(sum(case when status = 5 then pay_amount else 0 end), 0) as revenue,
+			count(case when status = 5 then 1 end)       as orderCount,
+			count(case when refund_status = 2 then 1 end) as refundedCount
+		from biz_order
+		where create_time &gt;= #{start} and create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and delivery_type = #{deliveryType}
+		</if>
+		group by date_format(create_time, '%Y-%m-%d')
+		order by timeLabel asc
+	</select>
+
+	<!-- 趋势（按小时）：用于"今日/昨日"等短区间；T19 口径同上 -->
+	<select id="selectTrendByHour" resultType="com.ruoyi.merchant.domain.vo.DashboardTrendVo">
+		select
+			date_format(create_time, '%Y-%m-%d %H:00') as timeLabel,
+			ifnull(sum(case when status = 5 then pay_amount else 0 end), 0) as revenue,
+			count(case when status = 5 then 1 end)       as orderCount,
+			count(case when refund_status = 2 then 1 end) as refundedCount
+		from biz_order
+		where create_time &gt;= #{start} and create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and delivery_type = #{deliveryType}
+		</if>
+		group by date_format(create_time, '%Y-%m-%d %H:00')
+		order by timeLabel asc
+	</select>
+
+	<!-- 菜品销量排行：明细聚合，仅已完成且未退款成功；排序字段用 choose 白名单，避免列名拼接注入 -->
+	<select id="selectGoodsRank" resultType="com.ruoyi.merchant.domain.vo.DashboardGoodsRankVo">
+		select
+			i.goods_id                    as goodsId,
+			max(i.goods_name)             as goodsName,
+			sum(i.quantity)               as quantity,
+			ifnull(sum(i.subtotal), 0)    as amount
+		from biz_order_item i
+		inner join biz_order o on o.id = i.order_id
+		where o.status = 5
+			and o.refund_status != 2
+			and o.create_time &gt;= #{start} and o.create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and o.delivery_type = #{deliveryType}
+		</if>
+		group by i.goods_id
+		order by
+		<choose>
+			<when test="sortBy == 'amount'">amount desc</when>
+			<otherwise>quantity desc</otherwise>
+		</choose>
+		, i.goods_id asc
+		limit #{topN}
+	</select>
+
+	<!-- 分类营业额占比：按菜品当前所属分类聚合（未匹配到分类归入"未分类"） -->
+	<select id="selectCategoryStat" resultType="com.ruoyi.merchant.domain.vo.DashboardCategoryVo">
+		select
+			c.id                          as categoryId,
+			ifnull(c.name, '未分类')       as categoryName,
+			ifnull(sum(i.subtotal), 0)    as amount,
+			sum(i.quantity)               as quantity
+		from biz_order_item i
+		inner join biz_order o on o.id = i.order_id
+		left join biz_goods g on g.id = i.goods_id
+		left join biz_category c on c.id = g.category_id
+		where o.status = 5
+			and o.refund_status != 2
+			and o.create_time &gt;= #{start} and o.create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and o.delivery_type = #{deliveryType}
+		</if>
+		group by c.id, c.name
+		order by amount desc
+	</select>
+	<!-- T19：菜品退款关联数——该菜品在"已退款订单（refund_status=2）"中的明细件数合计。
+	     与主排行分开查询：主排行 where 排除了已退款订单，无法在同一结果里统计退款。 -->
+	<select id="selectGoodsRefundCount" resultType="com.ruoyi.merchant.domain.vo.DashboardGoodsRankVo">
+		select
+			i.goods_id         as goodsId,
+			sum(i.quantity)    as refundCount
+		from biz_order_item i
+		inner join biz_order o on o.id = i.order_id
+		where o.refund_status = 2
+			and o.create_time &gt;= #{start} and o.create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and o.delivery_type = #{deliveryType}
+		</if>
+		group by i.goods_id
+	</select>
+
+	<!-- T19：高峰时段——区间内跨天按"小时 of day"聚合有效订单（主状态 5，按 create_time）；
+	     只返回有数据的小时，0-23 补齐与峰值标记由服务层完成。 -->
+	<select id="selectPeakHours" resultType="com.ruoyi.merchant.domain.vo.DashboardPeakHourVo">
+		select
+			 hour(create_time)                  as hour,
+			count(*)                             as orderCount,
+			ifnull(sum(pay_amount), 0)           as revenue
+		from biz_order
+		where status = 5
+			and create_time &gt;= #{start} and create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and delivery_type = #{deliveryType}
+		</if>
+		group by hour(create_time)
+		order by hour asc
+	</select>
+
+	<!-- T19：出餐效率——条件聚合一次算出四段平均耗时与样本量；
+	     只统计对应时间字段非 NULL 的订单（真实发生该环节），不做主状态过滤（已退款订单的环节耗时同样是真实经营耗时）。 -->
+	<select id="selectEfficiency" resultType="com.ruoyi.merchant.domain.vo.DashboardEfficiencyVo">
+		select
+			avg(case when accept_time is not null and pay_time is not null
+				then timestampdiff(second, pay_time, accept_time) end)   as avgAcceptSeconds,
+			count(case when accept_time is not null and pay_time is not null then 1 end) as acceptSamples,
+			avg(case when ready_time is not null and pay_time is not null
+				then timestampdiff(second, pay_time, ready_time) end)    as avgMakeSeconds,
+			count(case when ready_time is not null and pay_time is not null then 1 end)  as makeSamples,
+			avg(case when ready_time is not null and picked_up_time is not null
+				then timestampdiff(second, ready_time, picked_up_time) end) as avgPickupWaitSeconds,
+			count(case when ready_time is not null and picked_up_time is not null then 1 end) as pickupWaitSamples,
+			avg(case when picked_up_time is not null and delivered_time is not null
+				then timestampdiff(second, picked_up_time, delivered_time) end) as avgDeliverSeconds,
+			count(case when picked_up_time is not null and delivered_time is not null then 1 end) as deliverSamples
+		from biz_order
+		where create_time &gt;= #{start} and create_time &lt; #{end}
+		<if test="deliveryType != null">
+			and delivery_type = #{deliveryType}
+		</if>
+	</select>
+
+</mapper>
