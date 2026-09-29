@@ -149,3 +149,7 @@ npm run dev
 - 后端与管理端基于开源项目 [RuoYi-Vue](https://gitee.com/y_project/RuoYi-Vue)（MIT License）二次开发；
 - 小程序端 UI 基于 [wot-design-uni](https://wot-design-uni.cn/) 组件库定制可爱风主题；
 - 项目定位为个人学习项目，界面素材与品牌均为虚构，请勿用于真实商业经营。
+
+## 支持
+
+如果这个项目对你有帮助、或者你觉得做得还不错，欢迎点个 ⭐ **Star** 支持一下，也欢迎 Fork 交流和提 Issue～
