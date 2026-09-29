@@ -111,7 +111,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 http://localhost:80（vite 输出的地址），默认账号 **admin / admin123**。
+浏览器访问 http://localhost:80  **（vite 输出的地址）**，默认账号 **admin / admin123**。
 
 ### 5. 启动小程序端
 
