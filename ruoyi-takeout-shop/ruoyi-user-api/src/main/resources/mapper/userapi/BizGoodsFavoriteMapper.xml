@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.userapi.mapper.BizGoodsFavoriteMapper">
+
+	<!--
+	  T20 收藏菜品：分页联查 biz_goods 当前状态。
+	  left join：菜品被删除/下架时收藏行不丢失（name/image 取快照字段为 null 时前端置灰"已失效"）。
+	  字段全部 AS 别名显式映射（工程未启用 mapUnderscoreToCamelCase）。
+	-->
+	<select id="selectFavoritePage" resultType="com.ruoyi.userapi.domain.vo.FavoriteItemVo">
+		select
+			f.id            as id,
+			f.goods_id      as goodsId,
+			ifnull(g.name, '商品已失效') as goodsName,
+			g.image         as image,
+			g.price         as price,
+			g.description   as description,
+			(g.status = '1') as onSale,
+			g.sold_out      as soldOut
+		from biz_goods_favorite f
+		left join biz_goods g on g.id = f.goods_id
+		where f.member_id = #{memberId}
+		order by f.id desc
+		limit #{offset}, #{limit}
+	</select>
+
+	<select id="countFavorite" resultType="long">
+		select count(*)
+		from biz_goods_favorite
+		where member_id = #{memberId}
+	</select>
+
+</mapper>

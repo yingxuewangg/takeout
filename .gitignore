@@ -1,0 +1,36 @@
+# ===== 构建产物 =====
+**/target/
+**/dist/
+**/node_modules/
+takeout-uniapp/unpackage/
+takeout-uniapp/.hbuilderx/
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.iml
+*.suo
+.hbuilderx/
+
+# ===== 本地私有文件（勿提交）=====
+# 本地密钥/敏感信息备忘
+*.local.md
+# 内部开发管理文档（本地保留，不入公开仓库）
+/点餐小程序开发方案.md
+/阿婆干饭社.pdf
+/ui-preview.html
+/docs/开发任务记录.md
+/docs/任务进度清单.md
+/docs/T16-T20后续功能规划.md
+/docs/联调测试报告.md
+# T11 调试期的数据备份/修复脚本（含测试数据，公开仓库无需保留）
+ruoyi-takeout-shop/sql/backup-t11-*.sql
+ruoyi-takeout-shop/sql/fix-t11-*.sql
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db

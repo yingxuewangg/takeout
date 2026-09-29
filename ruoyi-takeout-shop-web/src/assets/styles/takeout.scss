@@ -1,0 +1,153 @@
+/**
+ * 阿婆干饭社 管理端页面统一样式
+ *
+ * 用法：在业务页面最外层 <div class="app-container takeout-page">，
+ * 表格统一加 class="takeout-table"，搜索区/工具栏沿用若依的 mb8 与 right-toolbar。
+ *
+ * 目的：让「外卖管理」下的所有页面（店铺/分类/菜品/订单/退款/留言/AI 知识库）
+ * 拥有一致的间距、卡片、表头与操作列样式，并让表格充分占满可用宽度（消除右侧空白）。
+ */
+
+/* ---------- 页面容器：统一内边距与背景 ---------- */
+.takeout-page {
+  padding: 16px;
+  box-sizing: border-box;
+  /* 占满父容器宽度，避免表格被压缩后右侧留白 */
+  width: 100%;
+}
+
+/* ---------- 查询区卡片 ---------- */
+.takeout-page .takeout-search {
+  padding: 16px 16px 0;
+  margin-bottom: 12px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+
+  .el-form-item {
+    margin-bottom: 16px;
+  }
+}
+
+/* ---------- 工具栏行 ---------- */
+.takeout-page .takeout-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+
+  .el-button + .el-button {
+    margin-left: 8px;
+  }
+
+  /* 右侧工具栏（right-toolbar 组件）靠右 */
+  .right-toolbar-container,
+  .top-right-btn {
+    margin-left: auto;
+  }
+}
+
+/* ---------- 表格卡片 ---------- */
+.takeout-page .takeout-table-card {
+  padding: 12px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* ---------- 表格：统一表头、行高、紧凑操作列，并撑满宽度 ---------- */
+.takeout-table {
+  width: 100% !important;
+
+  /* 表头统一样式 */
+  th.el-table__cell {
+    background-color: #fafafa !important;
+    color: #4a3728;
+    font-weight: 600;
+  }
+
+  /* 单元格统一垂直居中、左右留白一致 */
+  .el-table__cell {
+    padding: 10px 0;
+  }
+
+  /* 操作列按钮紧凑排列，避免按钮换行导致行高不齐 */
+  .small-padding {
+    .cell {
+      padding-left: 8px;
+      padding-right: 8px;
+      white-space: nowrap;
+    }
+
+    .el-button + .el-button {
+      margin-left: 8px;
+    }
+
+    .el-button.is-link {
+      padding: 0;
+    }
+  }
+
+  /* 长文本列：超出省略（配合 show-overflow-tooltip 使用） */
+  .el-tooltip__trigger {
+    white-space: nowrap;
+  }
+}
+
+/* ---------- 状态标签统一尺寸 ---------- */
+.takeout-page .el-tag {
+  min-width: 56px;
+  text-align: center;
+}
+
+/* ---------- 详情弹窗内的描述列表与表格统一间距 ---------- */
+.takeout-page .el-descriptions {
+  margin-bottom: 8px;
+}
+
+/* ---------- 分页统一靠右、留出上边距 ---------- */
+.takeout-page .el-pagination {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+/* ---------- 空状态统一 ---------- */
+.takeout-page .el-table__empty-text {
+  color: #a89888;
+}
+
+/* ---------- 表单页（店铺信息）：两列布局下的统一间距 ---------- */
+.takeout-page .shop-form {
+  .el-form-item {
+    margin-bottom: 20px;
+  }
+
+  /* 输入控件统一撑满所在列宽 */
+  .el-input,
+  .el-input-number,
+  .el-select {
+    width: 100%;
+  }
+
+  .el-input-number {
+    /* el-input-number 需要保留控制按钮空间 */
+    width: 100%;
+  }
+
+  .el-form-item-msg {
+    font-size: 12px;
+    color: #a89888;
+    line-height: 1.5;
+  }
+}
+
+/* ---------- 卡片标题统一 ---------- */
+.takeout-page .el-card__header {
+  padding: 14px 16px;
+  font-weight: 600;
+  color: #4a3728;
+  background-color: #fff;
+}
+
+.takeout-page .el-card__body {
+  padding: 16px;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "takeout-uniapp",
+  "version": "1.0.0",
+  "description": "阿婆干饭社 uniapp 微信小程序端",
+  "dependencies": {
+    "wot-design-uni": "^1.14.0"
+  }
+}

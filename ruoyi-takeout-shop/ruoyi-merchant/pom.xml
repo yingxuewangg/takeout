@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>com.ruoyi</groupId>
+        <artifactId>ruoyi</artifactId>
+        <version>3.9.2</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>ruoyi-merchant</artifactId>
+
+    <description>
+        商家管理端后端业务模块：店铺信息、菜单管理、订单流转、退款审核、留言管理（接口走若依后台权限体系）
+    </description>
+
+    <dependencies>
+
+        <!-- 系统模块（字典、用户、权限等） -->
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-system</artifactId>
+        </dependency>
+
+        <!-- WebSocket：新订单实时推送（T15，原生 WebSocket 广播，握手时自行校验 admin token） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <!-- RocketMQ：订单状态变更事件 order-status-changed 生产者（生产/消费代码集中在本模块与 ruoyi-user-api 的 mq 包） -->
+        <dependency>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- MyBatis-Plus 分页插件（PaginationInnerInterceptor，3.5.9+ 独立构件） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+        </dependency>
+
+        <!-- ===== 二期 AI 知识库（管理端上传/解析/向量化） ===== -->
+        <!-- OpenAI 兼容协议 starter：通义千问走 compatible-mode，同时提供 Chat 与 Embedding -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+        <!-- Redis 向量库（需 redis-stack，含 RediSearch 模块） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-redis</artifactId>
+        </dependency>
+        <!-- Tika 文档解析器：一个 reader 覆盖 txt/md/pdf/docx -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-tika-document-reader</artifactId>
+        </dependency>
+
+    </dependencies>
+
+</project>
