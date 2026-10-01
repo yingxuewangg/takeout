@@ -71,29 +71,18 @@
 
 ### 顾客端（微信小程序）
 
-**首页**——堂食/外卖切换、分类菜单（Redis 缓存）、收藏与 AI 助手入口、购物车栏：
-
-![小程序首页](docs/images/小程序首页.png)
-
-**菜品详情**——规格差价与口味选择、选中价实时计算、售罄置灰与剩余库存：
-
-![小程序菜品详情页](docs/images/小程序菜品详情页.png)
-
-**提交订单**——地址快照、备注快捷标签、配送费快照与金额汇总：
-
-![小程序提交订单页](docs/images/小程序提交订单页.png)
-
-**收银台**——待支付倒计时、模拟支付（明确标注仅演示）：
-
-![小程序支付页](docs/images/小程序支付页.png)
-
-**我的订单**——退款状态优先展示、去评价 / 再次购买 / 申请退款按状态渲染：
-
-![小程序我的订单页](docs/images/小程序我的订单页.png)
-
-**AI 智能问答（问问阿婆）**——RAG + 流式输出，基于知识库与在售菜品回答：
-
-![小程序AI智能问答页](docs/images/小程序AI智能问答页.png)
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/小程序首页.png" width="100%"/><br/><b>首页</b>：堂食/外卖切换 · 分类菜单（Redis 缓存）· 收藏与 AI 入口</td>
+    <td align="center"><img src="docs/images/小程序菜品详情页.png" width="100%"/><br/><b>菜品详情</b>：规格差价与口味选择 · 售罄置灰 · 剩余库存</td>
+    <td align="center"><img src="docs/images/小程序提交订单页.png" width="100%"/><br/><b>提交订单</b>：地址快照 · 备注快捷标签 · 配送费快照</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/小程序支付页.png" width="100%"/><br/><b>收银台</b>：待支付倒计时 · 模拟支付（标注仅演示）</td>
+    <td align="center"><img src="docs/images/小程序我的订单页.png" width="100%"/><br/><b>我的订单</b>：退款状态优先 · 去评价/再次购买/申请退款</td>
+    <td align="center"><img src="docs/images/小程序AI智能问答页.png" width="100%"/><br/><b>AI 智能问答</b>：RAG + 流式输出 · 基于知识库与在售菜品</td>
+  </tr>
+</table>
 
 ### 商家端（RuoYi Web 管理后台）
 
