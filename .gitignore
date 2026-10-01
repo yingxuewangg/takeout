@@ -27,6 +27,9 @@ logs/
 /docs/任务进度清单.md
 /docs/T16-T20后续功能规划.md
 /docs/联调测试报告.md
+# 学习文档与操作手册（含简历/面试材料与内部测试信息，本地保留）
+/docs/学习文档/
+/docs/测试操作手册.md
 # T11 调试期的数据备份/修复脚本（含测试数据，公开仓库无需保留）
 ruoyi-takeout-shop/sql/backup-t11-*.sql
 ruoyi-takeout-shop/sql/fix-t11-*.sql
