@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ import com.ruoyi.merchant.mapper.BizOrderItemMapper;
 import com.ruoyi.merchant.mapper.BizOrderMapper;
 import com.ruoyi.merchant.mapper.BizPaymentRecordMapper;
 import com.ruoyi.merchant.service.OrderPushService;
+import com.ruoyi.userapi.domain.vo.PayResultVo;
 import com.ruoyi.userapi.mq.TakeoutMqProducer;
 import com.ruoyi.userapi.service.PaymentService;
 
@@ -32,11 +34,12 @@ import com.ruoyi.userapi.service.PaymentService;
  *
  * 事务内：订单条件更新 0->1 + 支付流水插入（订单号唯一约束幂等）+ 菜品销量同步累加；
  * 事务提交后：发 order-paid-success 事件消息（一期消费仅日志）+ 向管理端推送新订单实时提醒（T15）。
- * payment.mock.enabled=false 时拒绝支付（上线真实支付前必须关闭模拟开关）。
+ * payment.mock.enabled=false 时本实现不装配（改由 WechatPaymentServiceImpl 接管），保留开关兜底拒绝。
  *
  * @author 阿婆干饭社
  */
 @Service
+@ConditionalOnProperty(name = "payment.mock.enabled", havingValue = "true", matchIfMissing = true)
 public class MockPaymentServiceImpl implements PaymentService
 {
     private static final Logger log = LoggerFactory.getLogger(MockPaymentServiceImpl.class);
@@ -71,7 +74,7 @@ public class MockPaymentServiceImpl implements PaymentService
 
     @Override
     @Transactional
-    public String pay(Long memberId, Long orderId, BigDecimal clientAmount)
+    public PayResultVo pay(Long memberId, Long orderId, BigDecimal clientAmount)
     {
         if (!mockEnabled)
         {
@@ -202,6 +205,6 @@ public class MockPaymentServiceImpl implements PaymentService
 
         log.info("[模拟支付] 支付成功：orderNo={} amount={} member={} mockTradeNo={}",
                 order.getOrderNo(), payAmount, memberId, record.getMockTradeNo());
-        return order.getOrderNo();
+        return PayResultVo.mock(order.getOrderNo());
     }
 }
