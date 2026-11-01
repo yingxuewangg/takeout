@@ -58,6 +58,13 @@
             <artifactId>spring-ai-tika-document-reader</artifactId>
         </dependency>
 
+        <!-- ===== 三期微信支付 APIv3 ===== -->
+        <!-- 官方 SDK：支付/退款/关单等 API 封装与回调验签解密（版本由根 pom dependencyManagement 管理） -->
+        <dependency>
+            <groupId>com.github.wechatpay-apiv3</groupId>
+            <artifactId>wechatpay-java</artifactId>
+        </dependency>
+
     </dependencies>
 
 </project>

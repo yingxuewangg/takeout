@@ -57,7 +57,9 @@ services:
     environment:
       JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
     ports:
-      - "9876:9876"
+      # 本机 9876 落在 Windows 保留端口段（netsh excludedportrange 9807-9906），无法绑定；
+      # 宿主机改用 19876 映射，容器内仍为 9876（application.yml 的 name-server 同步为 localhost:19876）
+      - "19876:9876"
 
   rocketmq-broker:
     image: docker.m.daocloud.io/apache/rocketmq:5.3.1

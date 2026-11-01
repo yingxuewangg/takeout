@@ -58,6 +58,11 @@ spring:
       - org.springframework.ai.vectorstore.redis.autoconfigure.RedisVectorStoreAutoConfiguration
   profiles:
     active: druid
+  # 本地私密配置（不入仓，见 application-local.example.yml）：存在时覆盖下方微信/支付等敏感项
+  config:
+    import:
+      - optional:classpath:application-local.yml
+      - optional:file:./application-local.yml
   # 文件上传
   servlet:
     multipart:
@@ -170,13 +175,29 @@ takeout:
     max-size: 5MB
     # 上传格式白名单（T2 统一文件上传模块生效）
     allow-extensions: jpg,jpeg,png,webp
-  # 微信小程序配置（真实登录需填入你的小程序 appid/secret）
+  # 微信小程序配置（登录用；secret 属敏感信息，从环境变量读取，密钥不入仓）
   wx:
-    appid:
-    secret:
+    appid: ${TAKEOUT_WX_APPID:}
+    secret: ${TAKEOUT_WX_SECRET:}
     # 开发辅助开关：true 时登录 code 直接作为 openid（跳过微信接口），仅限本地开发调试！
-    # 部署上线前必须改为 false 并填入真实 appid/secret（与 payment.mock.enabled 同风格）
+    # 部署上线前必须改为 false 并通过环境变量/本地配置提供真实 appid/secret（与 payment.mock.enabled 同风格）
     mock-enabled: false
+
+  # 微信支付 APIv3 商户配置（三期）：全部经环境变量占位注入，密钥绝不入仓；
+  # 六项配置齐全时才会启用真实微信支付（takeout.wechat-pay 节详见 application-local.example.yml）
+  wechat-pay:
+    # 小程序 AppID（与上方 wx.appid 同一小程序）
+    app-id: ${TAKEOUT_WXPAY_APPID:}
+    # 商户号
+    mch-id: ${TAKEOUT_WXPAY_MCH_ID:}
+    # 商户 API 证书序列号
+    mch-serial-no: ${TAKEOUT_WXPAY_MCH_SERIAL_NO:}
+    # 商户 APIv3 密钥（32 位）
+    api-v3-key: ${TAKEOUT_WXPAY_API_V3_KEY:}
+    # 商户私钥文件路径（apiclient_key.pem，本地路径，文件本身不入仓）
+    private-key-path: ${TAKEOUT_WXPAY_PRIVATE_KEY_PATH:}
+    # 支付结果回调地址（https 公网地址；本地联调可用内网穿透域名）
+    notify-url: ${TAKEOUT_WXPAY_NOTIFY_URL:}
 
   # AI 业务参数（检索与切片，二期）
   ai:
@@ -200,8 +221,9 @@ takeout:
 rocketmq:
   # 降级总开关：false 时消息不发送/不消费，超时关单仅靠定时任务兜底
   enabled: true
-  # name-server 地址（docker-compose 环境映射到 localhost:9876）
-  name-server: localhost:9876
+  # name-server 地址（docker-compose 将 namesrv 容器 9876 映射到宿主机 19876：
+  # 本机 9876 落在 Windows 保留端口段无法绑定，详见 docker-compose.yml 注释）
+  name-server: localhost:19876
   producer:
     # 生产者组（占位，T5 下单发延迟消息时启用）
     group: takeout-producer-group

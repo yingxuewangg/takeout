@@ -1,0 +1,23 @@
+# ===================================================================
+# 阿婆干饭社 本地私密配置样例（三期微信支付联调用）
+# ===================================================================
+# 用法：复制本文件为 application-local.yml（与 application.yml 同目录），
+#       填入真实取值后即可生效（application.yml 已通过 spring.config.import 引用）。
+# 安全约定：application-local.yml 已加入 .gitignore，绝不提交；商户私钥 *.pem/*.p12 同样不入仓。
+# 提示：取值也可不写在本文件，改用系统环境变量（TAKEOUT_WX_* / TAKEOUT_WXPAY_*）同等生效。
+
+takeout:
+  # ---- 微信小程序登录（code2session 用）----
+  wx:
+    appid: wx1234567890abcdef          # 小程序 AppID
+    secret: your-miniprogram-secret    # 小程序 AppSecret（微信公众平台-开发管理）
+    # mock-enabled 保持 false：联调真实登录时才置 true（仅本地调试）
+
+  # ---- 微信支付 APIv3 商户参数（六项齐全才启用真实微信支付）----
+  wechat-pay:
+    app-id: wx1234567890abcdef         # 与上方 wx.appid 同一小程序
+    mch-id: '1900000000'               # 商户号（微信支付商户平台）
+    mch-serial-no: '5157F09EFDC096DE15EBE81A47057A72xxxxxxxx'   # 商户 API 证书序列号
+    api-v3-key: 'your32BytesApiV3Keyyyyyyyyyyyyyyy'             # 商户 APIv3 密钥（32 位）
+    private-key-path: 'C:/keys/apiclient_key.pem'               # 商户私钥文件（本地路径，勿入仓）
+    notify-url: 'https://your-domain.example.com/api/pay/wechat/notify'  # 回调地址（https 公网；本地联调用内网穿透）
