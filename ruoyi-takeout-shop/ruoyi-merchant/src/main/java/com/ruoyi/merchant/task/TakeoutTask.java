@@ -17,7 +17,9 @@ import com.ruoyi.merchant.service.OrderPaymentLedgerService;
 import com.ruoyi.merchant.service.StockService;
 import com.ruoyi.merchant.service.WechatPayClient;
 import com.ruoyi.merchant.service.WechatPayGuardService;
+import com.ruoyi.merchant.service.WechatRefundService;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.RefundNotification;
 
 /**
  * 阿婆干饭社定时任务（由若依 quartz 管理端配置调度，invokeTarget: takeoutTask.xxx）。
@@ -35,10 +37,11 @@ public class TakeoutTask
 {
     private static final Logger log = LoggerFactory.getLogger(TakeoutTask.class);
 
-    /** 订单主状态：0待支付 6已取消；退款状态：0无 1审核中 2已退款 */
+    /** 订单主状态：0待支付 6已取消；退款审核状态：0待审核 1已通过 2已驳回；订单退款状态：0无 1审核中 2已退款 */
     private static final int STATUS_UNPAID = 0;
     private static final int STATUS_CANCELLED = 6;
     private static final int REFUND_AUDIT_PENDING = 0;
+    private static final int REFUND_AUDIT_APPROVED = 1;
     private static final int REFUND_AUDIT_REJECTED = 2;
     private static final int REFUND_STATUS_AUDITING = 1;
     private static final int REFUND_STATUS_NONE = 0;
@@ -73,6 +76,10 @@ public class TakeoutTask
     /** 支付成功落账服务（T23/T24 查单兜底落账） */
     @Autowired
     private OrderPaymentLedgerService paymentLedgerService;
+
+    /** 微信退款结果落库服务（T25 查单兜底补写受理号） */
+    @Autowired
+    private WechatRefundService wechatRefundService;
 
     /**
      * 待支付订单超时自动关闭（cron：每分钟 0 * * * * ?，禁止并发）
@@ -164,6 +171,60 @@ public class TakeoutTask
         if (paid > 0)
         {
             log.info("[定时任务] 微信查单兜底：本次补落账 {} 单", paid);
+        }
+    }
+
+    /**
+     * 微信退款查单兜底（三期 T25，cron：每分钟 0 * * * * ?，禁止并发）。
+     *
+     * 覆盖退款回调丢失场景：对已受理（审核状态=1、非模拟、微信受理号未写回）且受理超过宽限窗的
+     * 退款单，逐单按商户退款单号向微信查单，微信侧 SUCCESS 则补写受理号（与回调同语义，幂等），
+     * ABNORMAL 记 ERROR 人工介入；其余状态等下一轮。不重复发起退款、不改订单状态。
+     */
+    public void checkWechatRefunds()
+    {
+        Date deadline = new Date(System.currentTimeMillis() - WECHAT_CHECK_GRACE_MINUTES * 60_000L);
+        List<BizOrderRefund> pendings = refundMapper.selectList(new LambdaQueryWrapper<BizOrderRefund>()
+                .eq(BizOrderRefund::getAuditStatus, REFUND_AUDIT_APPROVED)
+                .eq(BizOrderRefund::getIsMockRefund, 0)
+                .isNull(BizOrderRefund::getRefundId)
+                .lt(BizOrderRefund::getUpdateTime, deadline));
+        if (pendings.isEmpty())
+        {
+            return;
+        }
+        int success = 0;
+        for (BizOrderRefund refund : pendings)
+        {
+            com.wechat.pay.java.service.refund.model.Refund wxRefund;
+            try
+            {
+                wxRefund = wechatPayClient.queryRefundByOutRefundNo(String.valueOf(refund.getId()));
+            }
+            catch (Exception e)
+            {
+                // 单笔查单失败不影响其余退款单，下一轮重查
+                log.warn("[定时任务] 微信退款查单失败：refundId={} err={}", refund.getId(), e.getMessage());
+                continue;
+            }
+            if (wxRefund.getStatus() == com.wechat.pay.java.service.refund.model.Status.SUCCESS)
+            {
+                RefundNotification notification = new RefundNotification();
+                notification.setOutRefundNo(wxRefund.getOutRefundNo());
+                notification.setRefundId(wxRefund.getRefundId());
+                notification.setRefundStatus(com.wechat.pay.java.service.refund.model.Status.SUCCESS);
+                wechatRefundService.onRefundNotification(notification, "查单兜底");
+                success++;
+            }
+            else if (wxRefund.getStatus() == com.wechat.pay.java.service.refund.model.Status.ABNORMAL)
+            {
+                log.error("[定时任务] 微信退款异常，需人工处理：refundId={} orderNo={} wxRefundId={}",
+                        refund.getId(), refund.getOrderNo(), wxRefund.getRefundId());
+            }
+        }
+        if (success > 0)
+        {
+            log.info("[定时任务] 微信退款查单兜底：本次补写受理号 {} 单", success);
         }
     }
 

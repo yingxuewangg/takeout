@@ -1,5 +1,6 @@
 package com.ruoyi.merchant.service.impl;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -26,11 +27,17 @@ import com.ruoyi.merchant.mapper.BizOrderMapper;
 import com.ruoyi.merchant.mapper.BizOrderRefundMapper;
 import com.ruoyi.merchant.service.MerchantRefundService;
 import com.ruoyi.merchant.service.StockService;
+import com.ruoyi.merchant.service.WechatPayClient;
+import com.ruoyi.merchant.util.PayAmountUtils;
+import com.wechat.pay.java.service.refund.model.Refund;
 
 /**
  * 管理端退款审核服务实现。
- * 通过（模拟退款成功）：退款单 0->1 + 订单 refund_status 1->2（终态）——两步同事务条件更新，
- * 行数不符即抛错回滚，防数据不一致；驳回：退款单 0->2 + 订单 1->0（主状态不变、流转恢复、可再次申请）。
+ * 通过：退款单 0->1 + 订单 refund_status 1->2（终态）——两步同事务条件更新，行数不符即抛错回滚，
+ * 防数据不一致。模拟支付单（pay_type!=2）打模拟标记即视为退款成功（二期语义）；
+ * 微信支付单（pay_type=2）事务内同步受理原路退款（三期 T25），受理失败抛错整体回滚、
+ * 管理端看到明确报错可直接重试，到账以退款回调/查单兜底写回受理号为准。
+ * 驳回：退款单 0->2 + 订单 1->0（主状态不变、流转恢复、可再次申请）。
  *
  * @author 阿婆干饭社
  */
@@ -47,6 +54,12 @@ public class MerchantRefundServiceImpl implements MerchantRefundService
     private static final int REFUND_STATUS_AUDITING = 1;
     private static final int REFUND_STATUS_REFUNDED = 2;
 
+    /** 微信支付下单标记（T22 发起 JSAPI 下单时写入；pay_type=1 为模拟支付） */
+    private static final int PAY_TYPE_WECHAT_PREPAY = 2;
+
+    /** 微信退款原因最长 80 字节（UTF-8，官方 API 约束） */
+    private static final int REFUND_REASON_MAX_BYTES = 80;
+
     /** 图片 URL 前缀（与 user-api FileUrlBuilder 同一配置，同规则拼接） */
     @Value("${takeout.file.base-url:}")
     private String baseUrl;
@@ -60,6 +73,10 @@ public class MerchantRefundServiceImpl implements MerchantRefundService
     /** 每日限量库存服务（T12）：退款成功（refund_status -> 2）后释放库存 */
     @Autowired
     private StockService stockService;
+
+    /** 微信支付客户端（T25：微信支付单审核通过后受理原路退款） */
+    @Autowired
+    private WechatPayClient wechatPayClient;
 
     /** 完整 URL = takeout.file.base-url + 相对路径（库内只存相对路径） */
     private String buildUrl(String relativePath)
@@ -128,12 +145,11 @@ public class MerchantRefundServiceImpl implements MerchantRefundService
     public void approve(Long id)
     {
         Date now = DateUtils.getNowDate();
-        // 退款单条件更新（where audit_status=0）：重复点击幂等
+        // 退款单条件更新（where audit_status=0）：重复点击幂等；is_mock_refund 按支付方式在下方写入
         int rows = refundMapper.update(null, new LambdaUpdateWrapper<BizOrderRefund>()
                 .eq(BizOrderRefund::getId, id)
                 .eq(BizOrderRefund::getAuditStatus, AUDIT_PENDING)
                 .set(BizOrderRefund::getAuditStatus, AUDIT_APPROVED)
-                .set(BizOrderRefund::getIsMockRefund, 1)
                 .set(BizOrderRefund::getRefundTime, now)
                 .set(BizOrderRefund::getUpdateTime, now));
         if (rows == 0)
@@ -141,6 +157,10 @@ public class MerchantRefundServiceImpl implements MerchantRefundService
             throw new ServiceException("该退款单已处理，请勿重复操作");
         }
         BizOrderRefund refund = refundMapper.selectById(id);
+        BizOrder order = orderMapper.selectOne(new LambdaQueryWrapper<BizOrder>()
+                .eq(BizOrder::getOrderNo, refund.getOrderNo()).last("limit 1"));
+        boolean mockRefund = order == null || order.getPayType() == null
+                || order.getPayType() != PAY_TYPE_WECHAT_PREPAY;
         // 订单 refund_status 1->2（终态）；行数=0 属数据不一致，抛错回滚整个事务
         int orderRows = orderMapper.update(null, new LambdaUpdateWrapper<BizOrder>()
                 .eq(BizOrder::getOrderNo, refund.getOrderNo())
@@ -153,8 +173,51 @@ public class MerchantRefundServiceImpl implements MerchantRefundService
         }
         // T12：退款成功（refund_status=2 终态）后释放每日限量库存（以订单号幂等，只释放一次）
         stockService.releaseByOrderNo(refund.getOrderNo());
-        log.info("[退款审核] 通过（模拟退款成功）：refundId={} orderNo={} amount={}",
-                id, refund.getOrderNo(), refund.getRefundAmount());
+        if (mockRefund)
+        {
+            // 模拟支付单：维持二期语义，打模拟标记即视为退款成功
+            refundMapper.update(null, new LambdaUpdateWrapper<BizOrderRefund>()
+                    .eq(BizOrderRefund::getId, id)
+                    .set(BizOrderRefund::getIsMockRefund, 1)
+                    .set(BizOrderRefund::getUpdateTime, now));
+            log.info("[退款审核] 通过（模拟退款成功）：refundId={} orderNo={} amount={}",
+                    id, refund.getOrderNo(), refund.getRefundAmount());
+            return;
+        }
+        // 微信支付单（三期 T25）：事务内同步受理原路退款。受理失败抛错整体回滚
+        // （本地状态自动还原，无需反向补偿事务），管理端看到明确报错后可重试。
+        // 极端情况（受理成功但本地事务提交失败）：受理号未写回且审核状态回滚为待审核，
+        // 无法被回调/查单兜底自动补写，需按日志对账后重新审核（微信以商户退款单号幂等）。
+        String outRefundNo = String.valueOf(id);
+        Refund wxRefund = wechatPayClient.createRefund(refund.getOrderNo(), outRefundNo,
+                truncateReason(refund.getReason()),
+                PayAmountUtils.toCents(order.getPayAmount()), PayAmountUtils.toCents(refund.getRefundAmount()));
+        // 受理号回写 + 撤销模拟标记（用户申请时统一写了 is_mock_refund=1，微信真实退款须为 0，
+        // 否则查单兜底按 is_mock_refund=0 过滤会漏单；写回条件幂等：退款回调/查单兜底亦按"受理号为空"补写）
+        refundMapper.update(null, new LambdaUpdateWrapper<BizOrderRefund>()
+                .eq(BizOrderRefund::getId, id)
+                .isNull(BizOrderRefund::getRefundId)
+                .set(BizOrderRefund::getRefundId, wxRefund.getRefundId())
+                .set(BizOrderRefund::getIsMockRefund, 0)
+                .set(BizOrderRefund::getUpdateTime, now));
+        log.info("[退款审核] 通过（微信原路退款已受理）：refundId={} orderNo={} outRefundNo={} wxRefundId={} amount={}",
+                id, refund.getOrderNo(), outRefundNo, wxRefund.getRefundId(), refund.getRefundAmount());
+    }
+
+    /** 微信退款原因最长 80 字节（UTF-8），按字符尾部截断避免切半个多字节字符 */
+    private String truncateReason(String reason)
+    {
+        if (StringUtils.isEmpty(reason))
+        {
+            return "";
+        }
+        String trimmed = reason.trim();
+        while (trimmed.getBytes(StandardCharsets.UTF_8).length > REFUND_REASON_MAX_BYTES
+                && trimmed.length() > 1)
+        {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     @Override

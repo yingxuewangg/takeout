@@ -16,6 +16,10 @@ import com.wechat.pay.java.service.payments.jsapi.model.Payer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.jsapi.model.QueryOrderByOutTradeNoRequest;
+import com.wechat.pay.java.service.refund.RefundService;
+import com.wechat.pay.java.service.refund.model.AmountReq;
+import com.wechat.pay.java.service.refund.model.CreateRequest;
+import com.wechat.pay.java.service.refund.model.QueryByOutRefundNoRequest;
 
 /**
  * 微信支付 APIv3 客户端封装（三期，官方 SDK wechatpay-java）。
@@ -109,6 +113,72 @@ public class WechatPayClient
     {
         NotificationParser parser = new NotificationParser(config());
         return parser.parse(requestParam, com.wechat.pay.java.service.payments.model.Transaction.class);
+    }
+
+    /**
+     * 发起微信原路退款（三期 T25 商家审核通过时调用）。
+     * 受理成功不代表退款到账（微信异步处理），到账以退款回调/查单兜底为准。
+     * 文档：https://pay.weixin.qq.com/docs/merchant/apis/jsapi-payment/refund.html
+     *
+     * @param outTradeNo 商户订单号（= 现有订单号）
+     * @param outRefundNo 商户退款单号（= biz_order_refund.id，全局唯一）
+     * @param reason 退款原因（UTF-8 最长 80 字节，调用方截断）
+     * @param totalCents 原订单金额（分）
+     * @param refundCents 退款金额（分）
+     */
+    public com.wechat.pay.java.service.refund.model.Refund createRefund(
+            String outTradeNo, String outRefundNo, String reason, long totalCents, long refundCents)
+    {
+        CreateRequest request = new CreateRequest();
+        request.setOutTradeNo(outTradeNo);
+        request.setOutRefundNo(outRefundNo);
+        request.setReason(reason);
+        if (props.getRefundNotifyUrl() != null && props.getRefundNotifyUrl().length() > 0)
+        {
+            request.setNotifyUrl(props.getRefundNotifyUrl());
+        }
+        AmountReq amount = new AmountReq();
+        amount.setRefund(refundCents);
+        amount.setTotal(totalCents);
+        amount.setCurrency("CNY");
+        request.setAmount(amount);
+        try
+        {
+            return new RefundService.Builder().config(config()).build().create(request);
+        }
+        catch (com.wechat.pay.java.core.exception.ServiceException e)
+        {
+            // 微信明确拒绝（余额不足/单号重复/金额超限等）：带错误码抛出，调用方回滚审核
+            log.error("[微信支付] 退款受理被拒：outTradeNo={} outRefundNo={} code={} body={}",
+                    outTradeNo, outRefundNo, e.getErrorCode(), e.getResponseBody(), e);
+            throw new ServiceException("微信退款受理失败：" + e.getErrorCode());
+        }
+        catch (Exception e)
+        {
+            log.error("[微信支付] 退款受理失败：outTradeNo={} outRefundNo={}", outTradeNo, outRefundNo, e);
+            throw new ServiceException("微信退款受理失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 按商户退款单号查询微信侧退款单（T25 查单兜底/回调对账用）。
+     */
+    public com.wechat.pay.java.service.refund.model.Refund queryRefundByOutRefundNo(String outRefundNo)
+    {
+        QueryByOutRefundNoRequest request = new QueryByOutRefundNoRequest();
+        request.setOutRefundNo(outRefundNo);
+        return new RefundService.Builder().config(config()).build().queryByOutRefundNo(request);
+    }
+
+    /**
+     * 解析并验签微信退款结果通知（T25）：验签通过返回 AES-GCM 解密后的退款单 RefundNotification，
+     * 验签/解密失败抛 SDK 异常（调用方按 FAIL 应答，微信将重试通知）。
+     * 文档：https://pay.weixin.qq.com/docs/merchant/apis/jsapi-payment/refund-notification.html
+     */
+    public com.wechat.pay.java.service.refund.model.RefundNotification parseRefundNotify(RequestParam requestParam)
+    {
+        NotificationParser parser = new NotificationParser(config());
+        return parser.parse(requestParam, com.wechat.pay.java.service.refund.model.RefundNotification.class);
     }
 
     /**

@@ -52,6 +52,9 @@ public class BizOrderRefund implements Serializable
     /** 模拟退款标记（1模拟；接真实支付后为0） */
     private Integer isMockRefund;
 
+    /** 微信退款受理号（真实退款回调/查单兜底写回；模拟退款为空） */
+    private String refundId;
+
     /** 退款成功时间（审核通过时写入） */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date refundTime;
@@ -93,6 +96,9 @@ public class BizOrderRefund implements Serializable
 
     public Integer getIsMockRefund() { return isMockRefund; }
     public void setIsMockRefund(Integer isMockRefund) { this.isMockRefund = isMockRefund; }
+
+    public String getRefundId() { return refundId; }
+    public void setRefundId(String refundId) { this.refundId = refundId; }
 
     public Date getRefundTime() { return refundTime; }
     public void setRefundTime(Date refundTime) { this.refundTime = refundTime; }

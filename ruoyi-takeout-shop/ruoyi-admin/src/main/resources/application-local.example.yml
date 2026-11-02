@@ -21,3 +21,4 @@ takeout:
     api-v3-key: 'your32BytesApiV3Keyyyyyyyyyyyyyyy'             # 商户 APIv3 密钥（32 位）
     private-key-path: 'C:/keys/apiclient_key.pem'               # 商户私钥文件（本地路径，勿入仓）
     notify-url: 'https://your-domain.example.com/api/pay/wechat/notify'  # 回调地址（https 公网；本地联调用内网穿透）
+    refund-notify-url: 'https://your-domain.example.com/api/pay/wechat/refund/notify'  # 退款回调（可选，不配置则用商户平台默认）

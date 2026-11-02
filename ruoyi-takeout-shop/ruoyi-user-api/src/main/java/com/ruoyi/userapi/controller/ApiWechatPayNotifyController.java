@@ -14,16 +14,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.merchant.service.OrderPaymentLedgerService;
 import com.ruoyi.merchant.service.WechatPayClient;
+import com.ruoyi.merchant.service.WechatRefundService;
 import com.wechat.pay.java.core.notification.RequestParam;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.RefundNotification;
 
 /**
- * 微信支付回调接口（三期 T23，公开接口：微信服务器调用，已加登录拦截器放行）。
+ * 微信支付回调接口（三期 T23 支付回调 / T25 退款回调，公开接口：微信服务器调用，已加登录拦截器放行）。
  *
  * 安全做法：不信任任何未验签内容——用官方 SDK NotificationParser 对
- * Wechatpay-* 请求头 + 原始报文整体验签，再 AES-GCM 解密出支付结果；
- * 业务落账委托管理侧共享服务（回调/查单兜底同语义），按"重复到达零副作用"设计：
- * 已落账订单重复通知幂等返回 SUCCESS；落账结果只决定日志与应答，不抛业务异常。
+ * Wechatpay-* 请求头 + 原始报文整体验签，再 AES-GCM 解密出支付/退款结果；
+ * 业务落库委托管理侧共享服务（回调/查单兜底同语义），按"重复到达零副作用"设计：
+ * 已落账/已写回的重复通知幂等返回 SUCCESS；处理结果只决定日志与应答，不抛业务异常。
  *
  * 应答约定（微信支付 APIv3）：
  * - 成功：HTTP 200 + {"code":"SUCCESS","message":"成功"}
@@ -42,6 +44,9 @@ public class ApiWechatPayNotifyController
 
     @Autowired
     private OrderPaymentLedgerService paymentLedgerService;
+
+    @Autowired
+    private WechatRefundService refundService;
 
     /**
      * 支付结果通知（takeout.wechat-pay.notify-url 指向本接口）
@@ -93,6 +98,34 @@ public class ApiWechatPayNotifyController
         {
             // 验签失败/解密失败/系统异常：应答 FAIL 让微信重试
             log.error("[微信支付回调] 处理失败（验签或落账异常）", e);
+            return fail("处理失败");
+        }
+    }
+
+    /**
+     * 退款结果通知（三期 T25，takeout.wechat-pay.refund-notify-url 指向本接口；
+     * 未配置该地址时微信调用商户平台默认退款回调）。
+     * 退款到账写回受理号幂等，非 SUCCESS 状态仅记日志；验签失败应答 FAIL 让微信重试。
+     */
+    @PostMapping("/refund/notify")
+    public ResponseEntity<Map<String, String>> refundNotify(HttpServletRequest request, @RequestBody String body)
+    {
+        try
+        {
+            RequestParam requestParam = new RequestParam.Builder()
+                    .serialNumber(request.getHeader("Wechatpay-Serial"))
+                    .nonce(request.getHeader("Wechatpay-Nonce"))
+                    .signature(request.getHeader("Wechatpay-Signature"))
+                    .timestamp(request.getHeader("Wechatpay-Timestamp"))
+                    .body(body)
+                    .build();
+            RefundNotification notification = wechatPayClient.parseRefundNotify(requestParam);
+            refundService.onRefundNotification(notification, "回调");
+            return success();
+        }
+        catch (Exception e)
+        {
+            log.error("[微信退款回调] 处理失败（验签或处理异常）", e);
             return fail("处理失败");
         }
     }

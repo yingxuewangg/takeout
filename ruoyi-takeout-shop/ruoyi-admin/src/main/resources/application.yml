@@ -198,6 +198,8 @@ takeout:
     private-key-path: ${TAKEOUT_WXPAY_PRIVATE_KEY_PATH:}
     # 支付结果回调地址（https 公网地址；本地联调可用内网穿透域名）
     notify-url: ${TAKEOUT_WXPAY_NOTIFY_URL:}
+    # 退款结果回调地址（三期 T25，可选；不配置则用商户平台默认退款回调）
+    refund-notify-url: ${TAKEOUT_WXPAY_REFUND_NOTIFY_URL:}
 
   # AI 业务参数（检索与切片，二期）
   ai:

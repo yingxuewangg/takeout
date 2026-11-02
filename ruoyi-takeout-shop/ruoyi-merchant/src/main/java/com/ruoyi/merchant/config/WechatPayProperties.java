@@ -37,6 +37,9 @@ public class WechatPayProperties
     /** 支付结果回调地址（必须是 https 公网地址，格式 https://host/api/pay/wechat/notify） */
     private String notifyUrl;
 
+    /** 退款结果回调地址（可选；不配置则使用商户平台默认退款回调，格式 https://host/api/pay/wechat/refund/notify） */
+    private String refundNotifyUrl;
+
     public String getAppId()
     {
         return appId;
@@ -95,6 +98,16 @@ public class WechatPayProperties
     public void setNotifyUrl(String notifyUrl)
     {
         this.notifyUrl = notifyUrl;
+    }
+
+    public String getRefundNotifyUrl()
+    {
+        return refundNotifyUrl;
+    }
+
+    public void setRefundNotifyUrl(String refundNotifyUrl)
+    {
+        this.refundNotifyUrl = refundNotifyUrl;
     }
 
     /**
