@@ -89,12 +89,12 @@ expect "下单成功" "$O1_RESP" '"code":200'
 
 echo "==================== 4. 模拟支付 ===================="
 SALES_BEFORE=$(sql "select sales from takeout.biz_goods where id=1")
-expect "支付金额篡改拒绝（先于支付）" "$(curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID,\"amount\":0.01}")" "不一致"
-PAY_RESP=$(curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID}")
+expect "支付金额篡改拒绝（先于支付）" "$(curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID,\"amount\":0.01}")" "不一致"
+PAY_RESP=$(curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID}")
 expect "支付成功（只传 orderId）" "$PAY_RESP" '"code":200'
 SALES_AFTER=$(sql "select sales from takeout.biz_goods where id=1")
 expect "销量同步累加（+2）" "$((SALES_AFTER-SALES_BEFORE))" "^2$"
-expect "重复支付幂等拦截" "$(curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID}")" "请勿重复支付"
+expect "重复支付幂等拦截" "$(curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID}")" "请勿重复支付"
 
 echo "==================== 5. 管理端流转（堂食链 1→2→3→5） ===================="
 docker exec takeout-redis redis-cli del "sys_config:sys.account.captchaEnabled" > /dev/null
@@ -117,7 +117,7 @@ ADDR_ID=$(sql "select id from takeout.biz_address where member_id=$MEMBER_ID ord
 curl -s -X POST $BASE/api/cart/add -H "$AUTH" -H "Content-Type: application/json" -d "$ADD_SIMPLE" > /dev/null
 OB_RESP=$(curl -s -X POST $BASE/api/order/create -H "$AUTH" -H "Content-Type: application/json" -d "{\"deliveryType\":2,\"addressId\":$ADDR_ID}")
 BID=$(jget "$OB_RESP" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$BID}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$BID}" > /dev/null
 for step in accept ready deliver complete; do
   curl -s -X PUT $BASE/merchant/order/$step/$BID -H "$A" > /dev/null
 done
@@ -128,7 +128,7 @@ echo "==================== 7. 退款链 ===================="
 curl -s -X POST $BASE/api/cart/add -H "$AUTH" -H "Content-Type: application/json" -d "$ADD_SIMPLE" > /dev/null
 OC_RESP=$(curl -s -X POST $BASE/api/order/create -H "$AUTH" -H "Content-Type: application/json" -d '{"deliveryType":1,"tableNo":"77","contactPhone":"13800000002"}')
 CID=$(jget "$OC_RESP" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$CID}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$CID}" > /dev/null
 cat > /tmp/it_refund.json <<EOF
 {"orderId":$CID,"reason":"联调测试退款"}
 EOF
@@ -254,7 +254,7 @@ expect "释放幂等（重复取消不再释放）" "$(curl -s -X PUT $BASE/api/
 expect "幂等校验：sold_qty 仍为 0" "$(sql "select sold_qty from takeout.biz_goods_stock_daily where goods_id=1 and spec_id=$SPEC_X12")" "^0$"
 
 # 5) 退款成功释放库存
-curl -s -X POST $BASE/api/pay/mock -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID12}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$AUTH" -H "Content-Type: application/json" -d "{\"orderId\":$OID12}" > /dev/null
 cat > /tmp/it_refund_t12.json <<EOF
 {"orderId":$OID12,"reason":"T12 联调退款"}
 EOF
@@ -306,7 +306,7 @@ EOF
 curl -s -X POST $BASE/api/cart/add -H "$A13" -H "Content-Type: application/json" --data-binary @/tmp/it_t13_add.json > /dev/null
 O15=$(curl -s -X POST $BASE/api/order/create -H "$A13" -H "Content-Type: application/json" -d '{"deliveryType":1,"tableNo":"13"}')
 OID15=$(jget "$O15" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID15}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID15}" > /dev/null
 
 # 1) 展示条件：主状态 1（已支付）→ canRepurchase=true
 expect "已支付订单可再次购买（canRepurchase=true）" "$(curl -s "$BASE/api/order/list?pageNum=1&pageSize=20" -H "$A13" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const o=JSON.parse(s).rows.find(x=>x.id==$OID15);console.log(o.canRepurchase)})")" "^true$"
@@ -348,7 +348,7 @@ curl -s -X POST $BASE/api/cart/add -H "$A13" -H "Content-Type: application/json"
 sleep 5   # 防重锁：同一用户 5 秒内重复下单会被拒（takeout:order:lock）
 O16=$(curl -s -X POST $BASE/api/order/create -H "$A13" -H "Content-Type: application/json" -d '{"deliveryType":1,"tableNo":"13"}')
 OID16=$(jget "$O16" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID16}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID16}" > /dev/null
 # 制造跳过场景：菜B 下架、菜C 售罄、菜1 正常
 sql "update takeout.biz_goods set status=0 where id=9002" > /dev/null
 sql "update takeout.biz_goods set sold_out=1 where id=9003" > /dev/null
@@ -377,7 +377,7 @@ sleep 5
 curl -s -X POST $BASE/api/cart/add -H "$A13" -H "Content-Type: application/json" -d '{"goodsId":1,"specId":'"$SPEC_D12"',"quantity":1}' > /dev/null
 O19=$(curl -s -X POST $BASE/api/order/create -H "$A13" -H "Content-Type: application/json" -d '{"deliveryType":1,"tableNo":"13"}')
 OID19=$(jget "$O19" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID19}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$A13" -H "Content-Type: application/json" -d "{\"orderId\":$OID19}" > /dev/null
 cat > /tmp/it_t13_refund.json <<EOF
 {"orderId":$OID19,"reason":"T13 联调退款"}
 EOF
@@ -432,7 +432,7 @@ O20=$(curl -s -X POST $BASE/api/order/create -H "$A14" -H "Content-Type: applica
 OID20=$(jget "$O20" "data.orderId")
 # 未完成（待支付）时不应计入看板
 expect "待支付订单不计入营业额" "$(curl -s "$BASE/merchant/dashboard/overview?range=today" -H "$A" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{console.log(JSON.parse(s).data.orderCount)})")" "^$BASE_ORDERS$"
-curl -s -X POST $BASE/api/pay/mock -H "$A14" -H "Content-Type: application/json" -d "{\"orderId\":$OID20}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$A14" -H "Content-Type: application/json" -d "{\"orderId\":$OID20}" > /dev/null
 for st in accept ready complete; do curl -s -X PUT $BASE/merchant/order/$st/$OID20 -H "$A" > /dev/null; done
 expect "已完成订单计入（有效订单数 +1）" "$(curl -s "$BASE/merchant/dashboard/overview?range=today" -H "$A" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{console.log(JSON.parse(s).data.orderCount)})")" "^$((BASE_ORDERS+1))$"
 expect "已完成订单计入营业额（+54.00）" "$(curl -s "$BASE/merchant/dashboard/overview?range=today" -H "$A" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{console.log(Number(JSON.parse(s).data.revenue).toFixed(2))})")" "^$(node -e "console.log((Number('$BASE_REVENUE')+54).toFixed(2))")$"
@@ -443,7 +443,7 @@ sleep 5
 curl -s -X POST $BASE/api/cart/add -H "$A14" -H "Content-Type: application/json" -d '{"goodsId":1,"quantity":5}' > /dev/null
 O21=$(curl -s -X POST $BASE/api/order/create -H "$A14" -H "Content-Type: application/json" -d '{"deliveryType":1,"tableNo":"14"}')
 OID21=$(jget "$O21" "data.orderId")
-curl -s -X POST $BASE/api/pay/mock -H "$A14" -H "Content-Type: application/json" -d "{\"orderId\":$OID21}" > /dev/null
+curl -s -X POST $BASE/api/pay/submit -H "$A14" -H "Content-Type: application/json" -d "{\"orderId\":$OID21}" > /dev/null
 cat > /tmp/it_t14_refund.json <<EOF
 {"orderId":$OID21,"reason":"T14 看板口径联调退款"}
 EOF

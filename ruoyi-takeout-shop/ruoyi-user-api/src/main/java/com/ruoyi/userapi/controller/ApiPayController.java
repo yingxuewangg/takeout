@@ -22,7 +22,7 @@ import com.ruoyi.userapi.service.impl.WechatPaymentServiceImpl;
  * 支付请求只传 orderId（金额以库内为准）；前端若额外传金额必须与库内一致否则拒绝。
  * 三期统一入口 POST /submit：按 payment.mock.enabled 分发模拟/微信支付实现，
  * 返回 PayResultVo（channel=mock 直接成功；channel=wechat 带 wx.requestPayment 调起参数）。
- * GET /config：小程序收银台读取当前渠道与文案。POST /mock 为一期遗留入口，小程序切换 /submit 后移除。
+ * GET /config：小程序收银台读取当前渠道与文案。
  *
  * @author 阿婆干饭社
  */
@@ -76,25 +76,6 @@ public class ApiPayController extends BaseController
         AjaxResult ajax = success();
         ajax.put("channel", mockEnabled ? "mock" : "wechat");
         ajax.put("label", mockEnabled ? "微信支付（模拟）" : "微信支付");
-        return ajax;
-    }
-
-    /**
-     * 模拟支付（一期遗留入口，T26 小程序切换 /submit 后移除）
-     *
-     * @param body {orderId: 订单ID, amount: 金额（可选，传了必须与库内一致）}
-     * @return {orderNo}
-     */
-    @PostMapping("/mock")
-    public AjaxResult mockPay(@RequestBody PayBody body)
-    {
-        if (body.getOrderId() == null)
-        {
-            return error("orderId 不能为空");
-        }
-        PayResultVo result = mockPaymentService.pay(ApiMemberContext.requireMemberId(), body.getOrderId(), body.getAmount());
-        AjaxResult ajax = success();
-        ajax.put("orderNo", result.getOrderNo());
         return ajax;
     }
 

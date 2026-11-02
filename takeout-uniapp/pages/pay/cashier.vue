@@ -39,13 +39,13 @@
 			</view>
 		</view>
 
-		<!-- 支付方式 -->
+		<!-- 支付方式（三期 T26：渠道与文案由 /api/pay/config 下发） -->
 		<view class="pay-card ap-card">
 			<view class="pay-row">
 				<text class="pay-icon">💰</text>
 				<view class="pay-info">
-					<text class="pay-name">微信支付（模拟）</text>
-					<text class="pay-tip">模拟支付，仅用于演示，不产生真实扣款</text>
+					<text class="pay-name">{{ payConfig.label }}</text>
+					<text class="pay-tip">{{ payConfig.channel === 'wechat' ? '在微信收银台完成付款' : '模拟支付，仅用于演示，不产生真实扣款' }}</text>
 				</view>
 				<text class="pay-check">✔️</text>
 			</view>
@@ -73,7 +73,8 @@ export default {
 			order: {},
 			remainSeconds: 0,
 			timer: null,
-			paying: false
+			paying: false,
+			payConfig: { channel: 'mock', label: '微信支付（模拟）' }
 		}
 	},
 	computed: {
@@ -110,6 +111,7 @@ export default {
 	},
 	onShow() {
 		this.loadOrder()
+		this.loadPayConfig()
 	},
 	onUnload() {
 		this.clearTimer()
@@ -145,7 +147,18 @@ export default {
 				setTimeout(() => uni.navigateBack(), 1200)
 			}
 		},
-		/** 确认支付（模拟支付确认框，标注仅用于演示） */
+		/** 加载支付渠道配置（三期 T26；失败保持默认模拟文案，不影响支付） */
+		async loadPayConfig() {
+			try {
+				const body = await request({ url: '/api/pay/config' })
+				if (body && body.channel) {
+					this.payConfig = { channel: body.channel, label: body.label }
+				}
+			} catch (e) {
+				// 配置读取失败按模拟渠道展示（文案不影响实际渠道，渠道以 /submit 返回为准）
+			}
+		},
+		/** 确认支付（按渠道给提示文案） */
 		confirmPay() {
 			if (!this.canPay) {
 				if (this.order.status === 0 && this.remainSeconds <= 0) {
@@ -155,7 +168,9 @@ export default {
 			}
 			uni.showModal({
 				title: '是否确认支付？',
-				content: '模拟支付，仅用于演示，不产生真实扣款',
+				content: this.payConfig.channel === 'wechat'
+					? '将通过微信支付付款 ¥' + this.fix(this.order.payAmount)
+					: '模拟支付，仅用于演示，不产生真实扣款',
 				confirmText: '确认支付',
 				success: (res) => {
 					if (res.confirm) {
@@ -164,22 +179,58 @@ export default {
 				}
 			})
 		},
-		/** 调模拟支付接口（只传 orderId，金额以后端库内为准） */
+		/** 发起支付（三期 T26 统一走 /api/pay/submit：模拟渠道直接成功；微信渠道调起收银台后轮询结果） */
 		async doPay() {
 			this.paying = true
 			try {
-				await request({
-					url: '/api/pay/mock',
+				const body = await request({
+					url: '/api/pay/submit',
 					method: 'POST',
 					data: { orderId: this.order.id }
 				})
-				uni.redirectTo({ url: '/pages/pay/result?orderId=' + this.order.id })
+				if (body && body.channel === 'wechat' && body.payParams) {
+					// 微信渠道：调起收银台，成功后轮询订单状态（后端以回调/查单落账为准）再跳结果页
+					await this.requestWxPayment(body.payParams)
+					await this.pollPaidAndGo()
+				} else {
+					uni.redirectTo({ url: '/pages/pay/result?orderId=' + this.order.id })
+				}
 			} catch (e) {
 				uni.showToast({ title: e.message || '支付失败', icon: 'none' })
 				this.loadOrder()
 			} finally {
 				this.paying = false
 			}
+		},
+		/** 调起微信收银台（payParams 为后端 SDK 签名的六元组；用户取消/失败抛错走统一提示） */
+		requestWxPayment(payParams) {
+			return new Promise((resolve, reject) => {
+				uni.requestPayment({
+					provider: 'wxpay',
+					timeStamp: payParams.timeStamp,
+					nonceStr: payParams.nonceStr,
+					package: payParams.package,
+					signType: payParams.signType,
+					paySign: payParams.paySign,
+					success: resolve,
+					fail: (err) => reject(new Error((err && err.errMsg && err.errMsg.indexOf('cancel') >= 0) ? '支付已取消' : '支付未完成'))
+				})
+			})
+		},
+		/** 轮询订单状态（5 次 x 1s）等后端落账后跳结果页；超时也跳（结果页可看实时状态） */
+		async pollPaidAndGo() {
+			for (let i = 0; i < 5; i++) {
+				try {
+					const body = await request({ url: '/api/order/' + this.orderId })
+					if (body.data && body.data.status === 1) {
+						break
+					}
+				} catch (e) {
+					// 轮询单次失败继续重试
+				}
+				await new Promise((resolve) => setTimeout(resolve, 1000))
+			}
+			uni.redirectTo({ url: '/pages/pay/result?orderId=' + this.order.id })
 		},
 		/** 取消订单（仅待支付；后端条件更新幂等） */
 		cancelOrder() {
