@@ -23,6 +23,7 @@ public class OrderMqProducer
     private static final Logger log = LoggerFactory.getLogger(OrderMqProducer.class);
 
     public static final String TOPIC_ORDER_STATUS_CHANGED = "order-status-changed";
+    public static final String TOPIC_ORDER_PAID_SUCCESS = "order-paid-success";
 
     @Autowired
     private org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
@@ -48,6 +49,27 @@ public class OrderMqProducer
         {
             // 发送失败不阻塞主流程
             log.error("[MQ] 订单状态变更事件发送失败：orderNo={}", orderNo, e);
+        }
+    }
+
+    /**
+     * 支付成功事件（payload=纯 orderNo 字符串，与用户端 TakeoutMqProducer.sendOrderPaidSuccess 保持一致）。
+     * 真实微信支付的成功落账在管理侧共享服务中提交后触发（回调/查单兜底共用）。
+     */
+    public void sendOrderPaidSuccess(String orderNo)
+    {
+        try
+        {
+            org.springframework.messaging.Message<String> msg =
+                    org.springframework.messaging.support.MessageBuilder
+                            .withPayload(orderNo).build();
+            rocketMQTemplate.syncSend(TOPIC_ORDER_PAID_SUCCESS, msg, 3000);
+            log.info("[MQ] 支付成功事件已发送：orderNo={}", orderNo);
+        }
+        catch (Exception e)
+        {
+            // 发送失败不阻塞主流程
+            log.error("[MQ] 支付成功事件发送失败：orderNo={}", orderNo, e);
         }
     }
 }

@@ -36,6 +36,8 @@ public class ApiWebConfig implements WebMvcConfigurer
                         "/api/goods/**",
                         // 留言列表/统计游客可看；发表(/api/comment POST)与 eligible-orders 仍需登录
                         "/api/comment/list/**",
-                        "/api/comment/stats/**");
+                        "/api/comment/stats/**",
+                        // 微信支付回调（T23）：微信服务器到商户服务器的调用，无会员登录态，接口内自行验签
+                        "/api/pay/wechat/**");
     }
 }

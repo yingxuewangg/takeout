@@ -43,6 +43,9 @@ public class BizPaymentRecord implements Serializable
     /** 模拟流水号 */
     private String mockTradeNo;
 
+    /** 微信支付订单号（真实支付回调/查单写回；模拟支付为空，T23） */
+    private String transactionId;
+
     /** 支付时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date payTime;
@@ -74,6 +77,9 @@ public class BizPaymentRecord implements Serializable
 
     public String getMockTradeNo() { return mockTradeNo; }
     public void setMockTradeNo(String mockTradeNo) { this.mockTradeNo = mockTradeNo; }
+
+    public String getTransactionId() { return transactionId; }
+    public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
 
     public Date getPayTime() { return payTime; }
     public void setPayTime(Date payTime) { this.payTime = payTime; }

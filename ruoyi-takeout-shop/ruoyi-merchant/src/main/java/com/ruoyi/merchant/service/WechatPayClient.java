@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.merchant.config.WechatPayProperties;
 import com.wechat.pay.java.core.RSAAutoCertificateConfig;
+import com.wechat.pay.java.core.notification.NotificationParser;
+import com.wechat.pay.java.core.notification.RequestParam;
 import com.wechat.pay.java.service.payments.jsapi.JsapiServiceExtension;
 import com.wechat.pay.java.service.payments.jsapi.model.Amount;
 import com.wechat.pay.java.service.payments.jsapi.model.Payer;
@@ -71,6 +73,17 @@ public class WechatPayClient
             log.error("[微信支付] JSAPI 下单失败：outTradeNo={} totalCents={}", outTradeNo, totalCents, e);
             throw new ServiceException("微信下单失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 解析并验签微信支付结果通知（T23）：验签通过返回 AES-GCM 解密后的支付订单 Transaction，
+     * 验签/解密失败抛 SDK 异常（调用方按 FAIL 应答，微信将重试通知）。
+     * 文档：https://pay.weixin.qq.com/docs/merchant/development/interface-rules/payment-notification.html
+     */
+    public com.wechat.pay.java.service.payments.model.Transaction parsePaymentNotify(RequestParam requestParam)
+    {
+        NotificationParser parser = new NotificationParser(config());
+        return parser.parse(requestParam, com.wechat.pay.java.service.payments.model.Transaction.class);
     }
 
     /**
