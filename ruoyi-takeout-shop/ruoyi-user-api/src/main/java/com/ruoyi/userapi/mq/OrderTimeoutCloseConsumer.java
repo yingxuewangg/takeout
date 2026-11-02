@@ -12,6 +12,7 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.merchant.domain.BizOrder;
 import com.ruoyi.merchant.mapper.BizOrderMapper;
 import com.ruoyi.merchant.service.StockService;
+import com.ruoyi.merchant.service.WechatPayGuardService;
 
 /**
  * 订单超时关闭消费者（RocketMQ 10 分钟延迟消息，方案 3.3/3.5）。
@@ -38,9 +39,19 @@ public class OrderTimeoutCloseConsumer implements RocketMQListener<String>
     @Autowired
     private StockService stockService;
 
+    /** 微信支付关单守卫（T24）：真实支付单关单前先问微信侧，防"本地关了、微信扣款成功" */
+    @Autowired
+    private WechatPayGuardService wechatPayGuardService;
+
     @Override
     public void onMessage(String orderNo)
     {
+        // T24 关单竞态守卫：微信支付单查单/关微信侧单在前；已支付则落账并跳过本地关单
+        if (!wechatPayGuardService.beforeLocalClose(orderNo))
+        {
+            log.info("[MQ] 延迟消息关单拦截（微信侧已支付已落账）：orderNo={}", orderNo);
+            return;
+        }
         int rows = orderMapper.update(null, new LambdaUpdateWrapper<BizOrder>()
                 .eq(BizOrder::getOrderNo, orderNo)
                 .eq(BizOrder::getStatus, STATUS_UNPAID)

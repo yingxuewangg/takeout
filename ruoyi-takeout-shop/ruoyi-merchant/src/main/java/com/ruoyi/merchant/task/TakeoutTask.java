@@ -13,7 +13,11 @@ import com.ruoyi.merchant.domain.BizOrder;
 import com.ruoyi.merchant.domain.BizOrderRefund;
 import com.ruoyi.merchant.mapper.BizOrderMapper;
 import com.ruoyi.merchant.mapper.BizOrderRefundMapper;
+import com.ruoyi.merchant.service.OrderPaymentLedgerService;
 import com.ruoyi.merchant.service.StockService;
+import com.ruoyi.merchant.service.WechatPayClient;
+import com.ruoyi.merchant.service.WechatPayGuardService;
+import com.wechat.pay.java.service.payments.model.Transaction;
 
 /**
  * 阿婆干饭社定时任务（由若依 quartz 管理端配置调度，invokeTarget: takeoutTask.xxx）。
@@ -42,6 +46,12 @@ public class TakeoutTask
     /** 退款审核超时小时数（24 小时，附录 B 决策 14） */
     private static final long REFUND_TIMEOUT_HOURS = 24;
 
+    /** 微信支付单查单兜底的宽限分钟数（下单超过该时长仍未回调才查单，避免与回调赛跑） */
+    private static final long WECHAT_CHECK_GRACE_MINUTES = 2;
+
+    /** 微信支付下单标记（T22 发起 JSAPI 下单时写入） */
+    private static final int PAY_TYPE_WECHAT_PREPAY = 2;
+
     @Autowired
     private BizOrderMapper orderMapper;
 
@@ -51,6 +61,18 @@ public class TakeoutTask
     /** 每日限量库存服务（T12）：超时关单兜底后释放库存 */
     @Autowired
     private StockService stockService;
+
+    /** 微信支付关单守卫（T24）：真实支付单关单前先问微信侧 */
+    @Autowired
+    private WechatPayGuardService wechatPayGuardService;
+
+    /** 微信支付客户端（T24 查单兜底） */
+    @Autowired
+    private WechatPayClient wechatPayClient;
+
+    /** 支付成功落账服务（T23/T24 查单兜底落账） */
+    @Autowired
+    private OrderPaymentLedgerService paymentLedgerService;
 
     /**
      * 待支付订单超时自动关闭（cron：每分钟 0 * * * * ?，禁止并发）
@@ -66,6 +88,11 @@ public class TakeoutTask
         int closed = 0;
         for (BizOrder order : timeouts)
         {
+            // T24 关单竞态守卫：微信支付单先对微信侧查单/关单，已支付则落账并跳过本地关单
+            if (!wechatPayGuardService.beforeLocalClose(order.getOrderNo()))
+            {
+                continue;
+            }
             // 条件更新（where status=0）幂等：并发下与 MQ 消费者互斥，只有一方关单成功
             int rows = orderMapper.update(null, new LambdaUpdateWrapper<BizOrder>()
                     .eq(BizOrder::getId, order.getId())
@@ -85,14 +112,69 @@ public class TakeoutTask
     }
 
     /**
+     * 微信支付查单兜底（三期 T24，cron：每分钟 0 * * * * ?，禁止并发）。
+     *
+     * 覆盖回调丢失场景：对已发起微信下单（pay_type=2）仍待支付且下单超过宽限窗的订单，
+     * 逐单向微信查单，微信侧已支付则落账（与回调同语义，重复执行幂等）。
+     * 关单仍由超时关单任务负责（含微信侧关单守卫），本任务不关单不释放库存。
+     */
+    public void checkWechatOrders()
+    {
+        Date deadline = new Date(System.currentTimeMillis() - WECHAT_CHECK_GRACE_MINUTES * 60_000L);
+        List<BizOrder> pendings = orderMapper.selectList(new LambdaQueryWrapper<BizOrder>()
+                .eq(BizOrder::getStatus, STATUS_UNPAID)
+                .eq(BizOrder::getPayType, PAY_TYPE_WECHAT_PREPAY)
+                .lt(BizOrder::getCreateTime, deadline));
+        if (pendings.isEmpty())
+        {
+            return;
+        }
+        int paid = 0;
+        for (BizOrder order : pendings)
+        {
+            Transaction transaction;
+            try
+            {
+                transaction = wechatPayClient.queryOrderByOutTradeNo(order.getOrderNo());
+            }
+            catch (Exception e)
+            {
+                // 单笔查单失败不影响其余订单，下一轮重查
+                log.warn("[定时任务] 微信查单兜底查单失败：orderNo={} err={}", order.getOrderNo(), e.getMessage());
+                continue;
+            }
+            if (transaction.getTradeState() != Transaction.TradeStateEnum.SUCCESS)
+            {
+                continue;
+            }
+            Integer payerTotal = transaction.getAmount() == null ? null : transaction.getAmount().getPayerTotal();
+            OrderPaymentLedgerService.LedgerResult result = paymentLedgerService.markPaid(
+                    order.getOrderNo(), transaction.getTransactionId(), payerTotal);
+            if (result == OrderPaymentLedgerService.LedgerResult.PAID
+                    || result == OrderPaymentLedgerService.LedgerResult.ALREADY_PAID)
+            {
+                paid++;
+            }
+            else
+            {
+                log.error("[定时任务] 微信查单兜底落账异常（{}）：orderNo={} transactionId={}",
+                        result, order.getOrderNo(), transaction.getTransactionId());
+            }
+        }
+        if (paid > 0)
+        {
+            log.info("[定时任务] 微信查单兜底：本次补落账 {} 单", paid);
+        }
+    }
+
+    /**
      * 每日库存初始化（cron：每天 00:00 0 0 0 * * ?，禁止并发）
      *
      * T12：按 biz_goods.daily_limit_enabled / daily_limit_qty（规格级以 biz_goods_spec.daily_limit_qty 优先）
      * 为当天建库存行；依赖唯一索引 (goods_id, spec_id, stock_date) 幂等，重复调度不会重复建行。
      * 下单/查询路径另有惰性初始化兜底（定时任务未跑或服务停机时保证库存语义正确）。
      */
-    public void initDailyStock()
-    {
+    public void initDailyStock()    {
         int created = stockService.initDailyStock(DateUtils.parseDate(DateUtils.getDate()));
         log.info("[定时任务] 每日库存初始化：日期={} 新增 {} 行", DateUtils.getDate(), created);
     }

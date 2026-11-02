@@ -11,9 +11,11 @@ import com.wechat.pay.java.core.notification.NotificationParser;
 import com.wechat.pay.java.core.notification.RequestParam;
 import com.wechat.pay.java.service.payments.jsapi.JsapiServiceExtension;
 import com.wechat.pay.java.service.payments.jsapi.model.Amount;
+import com.wechat.pay.java.service.payments.jsapi.model.CloseOrderRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.Payer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
+import com.wechat.pay.java.service.payments.jsapi.model.QueryOrderByOutTradeNoRequest;
 
 /**
  * 微信支付 APIv3 客户端封装（三期，官方 SDK wechatpay-java）。
@@ -73,6 +75,29 @@ public class WechatPayClient
             log.error("[微信支付] JSAPI 下单失败：outTradeNo={} totalCents={}", outTradeNo, totalCents, e);
             throw new ServiceException("微信下单失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 按商户订单号查询微信侧支付订单状态（T24 查单兜底/关单守卫用）。
+     */
+    public com.wechat.pay.java.service.payments.model.Transaction queryOrderByOutTradeNo(String outTradeNo)
+    {
+        QueryOrderByOutTradeNoRequest request = new QueryOrderByOutTradeNoRequest();
+        request.setMchid(props.getMchId());
+        request.setOutTradeNo(outTradeNo);
+        return new JsapiServiceExtension.Builder().config(config()).build().queryOrderByOutTradeNo(request);
+    }
+
+    /**
+     * 关闭微信侧订单（T24 关单守卫：本地关单前先关微信侧，防"本地已关、用户却支付成功"）。
+     * 微信侧已支付时 SDK 抛异常（微信侧订单不可关），调用方应重新查单确认真实状态。
+     */
+    public void closeOrder(String outTradeNo)
+    {
+        CloseOrderRequest request = new CloseOrderRequest();
+        request.setMchid(props.getMchId());
+        request.setOutTradeNo(outTradeNo);
+        new JsapiServiceExtension.Builder().config(config()).build().closeOrder(request);
     }
 
     /**

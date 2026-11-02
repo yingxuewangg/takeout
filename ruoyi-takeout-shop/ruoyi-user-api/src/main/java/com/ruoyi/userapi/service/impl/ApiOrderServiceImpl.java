@@ -37,6 +37,7 @@ import com.ruoyi.merchant.mapper.BizOrderItemMapper;
 import com.ruoyi.merchant.mapper.BizOrderMapper;
 import com.ruoyi.merchant.mapper.BizShopInfoMapper;
 import com.ruoyi.merchant.service.StockService;
+import com.ruoyi.merchant.service.WechatPayGuardService;
 import com.ruoyi.userapi.domain.BizAddress;
 import com.ruoyi.userapi.domain.BizCart;
 import com.ruoyi.userapi.domain.vo.CartItemVo;
@@ -103,6 +104,10 @@ public class ApiOrderServiceImpl implements ApiOrderService
     /** 每日限量库存服务（T12）：下单扣减 + 取消释放 */
     @Autowired
     private StockService stockService;
+
+    /** 微信支付关单守卫（T24）：取消真实支付单前先问微信侧，防"本地取消、微信扣款成功" */
+    @Autowired
+    private WechatPayGuardService wechatPayGuardService;
 
     /** 菜品与口味（T13 再次购买校验：下架/售罄/口味是否仍存在） */
     @Autowired
@@ -420,6 +425,11 @@ public class ApiOrderServiceImpl implements ApiOrderService
             throw new ServiceException("订单不存在");
         }
         // 仅待支付可取消：条件更新（where status=0）幂等；取消后延迟消息/定时任务触达时自然跳过
+        // T24 关单竞态守卫：微信支付单取消前先查单/关微信侧单，已支付则落账并拦截取消
+        if (!wechatPayGuardService.beforeLocalClose(order.getOrderNo()))
+        {
+            throw new ServiceException("订单已支付，请勿重复支付");
+        }
         int rows = orderMapper.update(null, new LambdaUpdateWrapper<BizOrder>()
                 .eq(BizOrder::getId, orderId)
                 .eq(BizOrder::getStatus, 0)
