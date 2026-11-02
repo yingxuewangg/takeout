@@ -1,6 +1,6 @@
 # 阿婆干饭社 —— 单店点餐微信小程序（全栈个人项目）
 
-> 扫码点餐 · 堂食/外卖双履约 · 模拟支付 · 完整订单/退款状态机 · AI 智能问答（RAG）
+> 扫码点餐 · 堂食/外卖双履约 · 模拟/微信双支付实现 · 完整订单/退款状态机 · AI 智能问答（RAG）
 >
 > 个人全栈练手项目：需求设计、数据库、后端接口、管理端页面、小程序页面均独立完成，供本人与朋友实际使用。
 
@@ -12,7 +12,7 @@
 - **商家端**：基于 RuoYi-Vue 的 Web 管理后台，覆盖店铺/菜单/订单/退款/留言/数据看板/实时新单提醒/小票打印；
 - **AI 能力**：基于 Spring AI + RAG 的点餐助手「问问阿婆」，商家上传知识库文档后可基于知识库与在售菜品回答顾客提问。
 
-> ⚠️ **声明**：支付为本地模拟（不发生真实扣款），仅用于学习演示；真实微信支付接入需要商户资质，代码已按策略模式预留扩展点。
+> ⚠️ **声明**：支付为**双实现**——默认模拟支付（不发生真实扣款）；同时已按微信支付 JSAPI（APIv3 官方 SDK `wechatpay-java`）完成真实接入：统一下单、支付/退款回调验签、查单兜底、原路退款，仅缺商户号真实凭据联调（支付测试阶段待进行）。`payment.mock.enabled` 一键切换，密钥全部走环境变量/本地文件，不入仓库。
 
 ## 功能一览
 
@@ -24,9 +24,9 @@
 | 点餐 | 分类菜单（Redis 缓存）、搜索、规格（差价）/口味多选、菜品级+规格级售罄、每日限量库存与自动售罄、剩余库存展示 |
 | 购物车 | 加购/改量/清空、失效菜品拦截 |
 | 下单 | 堂食绑桌号 / 外卖地址簿+地址快照、配送费与起送价校验、订单备注（快捷模板）、防重锁 |
-| 支付 | 模拟支付（策略模式 PaymentService，金额以服务端库内为准、多重幂等校验）、10 分钟未支付自动关单（RocketMQ 延迟消息 + 定时任务兜底） |
+| 支付 | 双渠道支付（策略模式 PaymentService）：模拟支付（金额以服务端库内为准、多重幂等校验）/ 微信 JSAPI 真实支付（统一下单、`wx.requestPayment` 调起、回调验签落账、查单兜底）；10 分钟未支付自动关单（RocketMQ 延迟消息 + 定时任务兜底，关单前微信查单防竞态） |
 | 订单 | 全状态流转可视化、进度条、骑手取餐状态细分、超时关单、取消订单、再次购买（逐项校验） |
-| 退款 | 仅整单、限主状态 1–3、配送中引导联系商家、24 小时未审核自动驳回、驳回后可再次申请 |
+| 退款 | 仅整单、限主状态 1–3、配送中引导联系商家、24 小时未审核自动驳回、驳回后可再次申请；审核通过自动发起微信原路退款（模拟单照旧即时到账） |
 | 留言/评价 | 购买后可留言（文字+图片+评分）、可关联订单、已完成订单「去评价」提醒 |
 | 收藏 | 菜品❤收藏、收藏列表加购 |
 | AI 助手 | RAG 知识库问答，多轮对话，防编造、标注知识来源 |
@@ -50,6 +50,7 @@
 | 后端 | Java 17 · Spring Boot · RuoYi-Vue · MyBatis-Plus |
 | 数据 | MySQL 8 · Redis（Cache-Aside 缓存 / 分布式 setnx 防重锁） |
 | 异步 | Apache RocketMQ（延迟消息关单、事件消息）· WebSocket |
+| 支付 | 微信支付 APIv3 官方 SDK `wechatpay-java`（JSAPI 下单/回调验签/查单/退款） |
 | AI | Spring AI · OpenAI 兼容协议（通义千问/百炼）· Redis 向量库（RAG） |
 | 顾客端 | uniapp · Vue3 · wot-design-uni（可爱风主题） |
 | 商家端 | Vue3 · Element Plus · ECharts |
@@ -64,6 +65,7 @@
 5. **销量在支付事务内同步累加**，MQ 事件不承担销量职责，避免双通道重复累加。
 6. **图片存储规范**：数据库只存名称+相对路径，展示统一拼 URL 前缀，后续迁 OSS 零表结构改动。
 7. **RAG 知识库问答**：文档解析 → 切片 → 向量化 → 检索 TopK → 结合在售菜品生成回答。
+8. **微信支付真实接入（APIv3）**：官方 SDK 懒加载（无商户凭据 clone 即跑）；回调验签 + AES-GCM 解密落账与"用户点完就跑"的查单兜底双通道，全部幂等（条件更新 + 唯一约束）；关单三入口（MQ/定时/用户取消）前置查单守卫，杜绝"已支付被关单"；审核通过事务内发起原路退款，受理失败自动回滚；金额全程 BigDecimal 元转分单点工具。
 
 ## 项目截图
 
@@ -131,7 +133,7 @@ docker exec -i takeout-mysql mysql -uroot -proot takeout < ruoyi-takeout-shop/sq
 docker exec -i takeout-mysql mysql -uroot -proot takeout < ruoyi-takeout-shop/sql/ruoyi-takeout-menu.sql
 docker exec -i takeout-mysql mysql -uroot -proot takeout < ruoyi-takeout-shop/sql/ruoyi-takeout-job.sql
 docker exec -i takeout-mysql mysql -uroot -proot takeout < ruoyi-takeout-shop/sql/ruoyi-takeout-ai.sql
-# 其余 ruoyi-takeout-*.sql / t18 / t19 / t20 为各迭代增量脚本，按文件名顺序执行
+# 其余 ruoyi-takeout-*.sql / t18 ~ t25 为各迭代增量脚本，按文件名顺序执行
 ```
 
 ### 3. 启动后端（端口 4121）
@@ -172,7 +174,7 @@ npm run dev
 │   └── docker-compose.yml    #   MySQL + Redis + RocketMQ 一键环境
 ├── ruoyi-takeout-shop-web    # 商家管理端前端（Vue3 + Element Plus）
 ├── takeout-uniapp            # 顾客端微信小程序（uniapp + wot-design-uni）
-└── docs/                     # 项目截图（docs/images/）、测试操作手册、AI 知识库示例数据
+└── docs/                     # 项目截图（docs/images/）、部署手册（部署手册.md）、测试操作手册、AI 知识库示例数据
 ```
 
 ## AI 智能问答（RAG）技术介绍
@@ -217,7 +219,8 @@ npm run dev
 
 | 配置 | 位置 | 说明 |
 |---|---|---|
-| `payment.mock.enabled` | application.yml | 模拟支付开关（默认 true，上线必须关闭并接入真实支付） |
+| `payment.mock.enabled` | application.yml | 支付渠道开关：`true` 模拟支付（默认），`false` 装配真实微信支付实现 |
+| `takeout.wechat-pay.*` | application.yml（占位）/ 环境变量 / application-local.yml | 微信支付商户参数：appId/mchId/mchSerialNo/apiV3Key/privateKeyPath/notifyUrl/refundNotifyUrl，**真实值不入仓**（样例见 `application-local.example.yml` 与 `docs/部署手册.md`） |
 | `wx.mock-enabled` | application.yml | 微信登录 mock（本地联调用，上线必须 false） |
 | `rocketmq.enabled` | application.yml | MQ 降级开关，false 时超时关单仅靠定时任务 |
 | `DASHSCOPE_API_KEY` | 环境变量 | AI 问答的模型 API Key，不入库不入 Git |
