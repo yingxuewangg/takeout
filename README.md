@@ -174,7 +174,7 @@ npm run dev
 │   └── docker-compose.yml    #   MySQL + Redis + RocketMQ 一键环境
 ├── ruoyi-takeout-shop-web    # 商家管理端前端（Vue3 + Element Plus）
 ├── takeout-uniapp            # 顾客端微信小程序（uniapp + wot-design-uni）
-└── docs/                     # 项目截图（docs/images/）、部署手册（部署手册.md）、测试操作手册、AI 知识库示例数据
+└── docs/                     # 项目截图（docs/images/）、部署手册（部署手册.md）、AI 知识库示例数据
 ```
 
 ## AI 智能问答（RAG）技术介绍
